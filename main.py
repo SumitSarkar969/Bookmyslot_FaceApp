@@ -1,3 +1,4 @@
+import time
 import customtkinter as ctk
 import cvzone
 import face_recognition
@@ -22,6 +23,9 @@ width = 1280
 
 width1 = 600
 height1 = 900
+
+# Detection mutex for controling the face recognition script
+Detection_mutex = True
 
 profile_pic = None
 
@@ -66,6 +70,7 @@ def profile_resize(event1):
     height1 = event1.height
 
 
+# Function to recognise faces
 def fetch_profile(fetch_id):
     global profile_pic
     # Downloading the profile pic of Doctor
@@ -74,6 +79,37 @@ def fetch_profile(fetch_id):
     profile_pic = cv2.imdecode(array, cv2.COLOR_BGRA2BGR)
     profile_pic = cv2.cvtColor(profile_pic, cv2.COLOR_BGR2RGB)
     profile_pic = Image.fromarray(profile_pic)
+
+
+def Face_detect(img1, curr_frame1):
+    global Face_encoding,face_ids, Detection_mutex
+
+    encode_curr_frame = face_recognition.face_encodings(img1, curr_frame1)
+    for encodeFaces in encode_curr_frame:
+
+        matches = face_recognition.compare_faces(Face_encoding, encodeFaces)
+        distance = face_recognition.face_distance(Face_encoding, encodeFaces)
+        match_index = np.argmin(distance)
+
+        if matches[match_index]:
+
+            # checking if doctor is marked present or not
+            if not detected[match_index]:
+                detected[match_index] = True
+
+                # updating the database according to the presence of the Doctor
+                obj = collection.find_one(ObjectId(face_ids[match_index]))
+                Filter = {"_id": ObjectId(face_ids[match_index])}
+                data = {"$set": {"present": True}}
+                collection.update_one(Filter, data)
+
+                # calling a thread to download the image to show
+                Th2 = threading.Thread(target=fetch_profile, args=(face_ids[match_index],))
+                Th2.start()
+                Th2.join()
+
+    time.sleep(2)
+    Detection_mutex = True
 
 
 ############################################# Main window Format ########################################
@@ -112,7 +148,7 @@ frame1.columnconfigure(0, weight=1)
 
 # frame1 -> label config
 label1 = ctk.CTkLabel(frame1, text='', bg_color='#61677A')
-canvas1 = ctk.CTkCanvas(frame1, highlightthickness=0)
+canvas1 = ctk.CTkCanvas(frame1, highlightthickness=0, background='#61677A')
 
 # frame1 -> label positioning
 label1.grid(row=0, pady=(0, 10), sticky='nsew')
@@ -152,29 +188,20 @@ while running:
     img = cam.read()[1]
     img = cv2.flip(img, 1)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    small_image = cv2.resize(img, (0, 0), None, 0.25, 0.25)
 
-    curr_frame = face_recognition.face_locations(img)
-    encode_curr_frame = face_recognition.face_encodings(img, curr_frame)
+    curr_frame = face_recognition.face_locations(small_image)
 
-    for encodeFaces, face_loc in zip(encode_curr_frame, curr_frame):
-        matches = face_recognition.compare_faces(Face_encoding, encodeFaces)
-        distance = face_recognition.face_distance(Face_encoding, encodeFaces)
-        match_index = np.argmin(distance)
+    if len(curr_frame) and Detection_mutex:
+        Detection_mutex = False
+        Th1 = threading.Thread(target=Face_detect, args=(small_image, curr_frame,))
+        Th1.start()
+
+    for face_loc in curr_frame:
         y1, x2, y2, x1 = face_loc
+        y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
         bbox = x1, y1, x2 - x1, y2 - y1
-        if matches[match_index]:
-            img = cvzone.cornerRect(img, bbox, rt=0)
-
-            # checking if doctor is marked present or not
-            if not detected[match_index]:
-                detected[match_index] = True
-                obj = collection.find_one(ObjectId(face_ids[match_index]))
-                Filter = {"_id": ObjectId(face_ids[match_index])}
-                data = {"$set": {"present": True}}
-                collection.update_one(Filter, data)
-
-                # calling a thread to download the image to show
-                Th1 = threading.Thread(target=fetch_profile, args=(face_ids[match_index],)).start()
+        img = cvzone.cornerRect(img, bbox, rt=0)
 
     # profile pic rendering
     if profile_pic is not None:
@@ -189,3 +216,4 @@ while running:
     canvas2.create_image(0, 0, image=img_tk, anchor='nw')
 
     root.update()
+
