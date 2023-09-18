@@ -70,7 +70,7 @@ def profile_resize(event1):
     height1 = event1.height
 
 
-# Function to recognise faces
+# Function to download Profile Picture
 def fetch_profile(fetch_id):
     global profile_pic
     # Downloading the profile pic of Doctor
@@ -81,8 +81,9 @@ def fetch_profile(fetch_id):
     profile_pic = Image.fromarray(profile_pic)
 
 
+# Function to recognise faces
 def Face_detect(img1, curr_frame1):
-    global Face_encoding,face_ids, Detection_mutex
+    global Face_encoding, face_ids, Detection_mutex
 
     encode_curr_frame = face_recognition.face_encodings(img1, curr_frame1)
     for encodeFaces in encode_curr_frame:
@@ -216,4 +217,3 @@ while running:
     canvas2.create_image(0, 0, image=img_tk, anchor='nw')
 
     root.update()
-
