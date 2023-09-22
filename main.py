@@ -88,18 +88,16 @@ def Face_detect(img1, curr_frame1):
     encode_curr_frame = face_recognition.face_encodings(img1, curr_frame1)
     for encodeFaces in encode_curr_frame:
 
-        matches = face_recognition.compare_faces(Face_encoding, encodeFaces)
-        distance = face_recognition.face_distance(Face_encoding, encodeFaces)
+        matches = face_recognition.compare_faces(encodeFaces, Face_encoding)
+        distance = face_recognition.face_distance(encodeFaces, Face_encoding)
         match_index = np.argmin(distance)
-
-        if matches[match_index]:
+        if matches[match_index] and distance[match_index] < 0.45:
 
             # checking if doctor is marked present or not
             if not detected[match_index]:
                 detected[match_index] = True
 
                 # updating the database according to the presence of the Doctor
-                obj = collection.find_one(ObjectId(face_ids[match_index]))
                 Filter = {"_id": ObjectId(face_ids[match_index])}
                 data = {"$set": {"present": True}}
                 collection.update_one(Filter, data)
