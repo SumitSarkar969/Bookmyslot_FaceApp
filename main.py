@@ -7,10 +7,12 @@ import pickle
 import numpy as np
 from PIL import Image, ImageTk
 
+# Firebase
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import storage
 
+# Mongodb
 import pymongo
 from bson.objectid import ObjectId
 
@@ -27,7 +29,11 @@ height1 = 900
 # Detection mutex for controling the face recognition script
 Detection_mutex = True
 
-profile_pic = None
+# Picture Mutex
+Pic_Mutex = True
+
+profile_pic = Image.open('Res/Icons/Canv2.gif')
+lable_text = 'Detecting...'
 
 ############################################### Connections #############################################
 
@@ -57,6 +63,7 @@ detected = [False] * len(face_ids)
 
 ################################################ Functions ##############################################
 
+
 # Function to update height and width of main image
 def Stretch_image(event):
     global width, height
@@ -70,6 +77,14 @@ def profile_resize(event1):
     height1 = event1.height
 
 
+def Waiting_func():
+    global lable_text, profile_pic, Pic_Mutex
+    time.sleep(5)
+    profile_pic = Image.open('Res/Icons/Canv2.gif')
+    lable_text = 'Detecting...'
+    Pic_Mutex = True
+
+
 # Function to download Profile Picture
 def fetch_profile(fetch_id):
     global profile_pic
@@ -80,10 +95,13 @@ def fetch_profile(fetch_id):
     profile_pic = cv2.cvtColor(profile_pic, cv2.COLOR_BGR2RGB)
     profile_pic = Image.fromarray(profile_pic)
 
+    # saving file to local images
+    profile_pic.save(f'Res/Local_images/{fetch_id}.jpg')
+
 
 # Function to recognise faces
 def Face_detect(img1, curr_frame1):
-    global Face_encoding, face_ids, Detection_mutex
+    global Face_encoding, face_ids, Detection_mutex, lable_text, profile_pic
 
     encode_curr_frame = face_recognition.face_encodings(img1, curr_frame1)
     for encodeFaces in encode_curr_frame:
@@ -93,19 +111,37 @@ def Face_detect(img1, curr_frame1):
         match_index = np.argmin(distance)
         if matches[match_index] and distance[match_index] < 0.45:
 
+            # Fetching the Doctor detail
+            obj = collection.find_one({"_id": ObjectId(face_ids[match_index])})
+
             # checking if doctor is marked present or not
-            if not detected[match_index]:
-                detected[match_index] = True
+            if not obj['present']:
 
                 # updating the database according to the presence of the Doctor
                 Filter = {"_id": ObjectId(face_ids[match_index])}
                 data = {"$set": {"present": True}}
                 collection.update_one(Filter, data)
 
-                # calling a thread to download the image to show
-                Th2 = threading.Thread(target=fetch_profile, args=(face_ids[match_index],))
-                Th2.start()
-                Th2.join()
+                if detected[match_index]:
+                    fetch_id = face_ids[match_index]
+                    profile_pic = Image.open(f'Res/Local_images/{fetch_id}.jpg')
+
+                else:
+                    # calling a thread to download the image to show
+                    detected[match_index] = True
+                    Th2 = threading.Thread(target=fetch_profile, args=(face_ids[match_index],))
+                    Th2.start()
+                    Th2.join()
+
+                lable_text = 'Marked'
+
+            else:
+                if lable_text == 'Marked' or lable_text == 'Already Detected':
+                    continue
+                else:
+                    lable_text = 'Already Detected'
+                    fetch_id = face_ids[match_index]
+                    profile_pic = Image.open(f'Res/Local_images/{fetch_id}.jpg')
 
     time.sleep(2)
     Detection_mutex = True
@@ -116,7 +152,7 @@ def Face_detect(img1, curr_frame1):
 # window
 root = ctk.CTk()
 root.title('Detector')
-root.iconbitmap('Res/Rect.ico')
+root.iconbitmap('Res/Icons/Rect.ico')
 root.geometry('1220x800')
 root.minsize(1220, 600)
 
@@ -146,8 +182,8 @@ frame1.rowconfigure(1, weight=4)
 frame1.columnconfigure(0, weight=1)
 
 # frame1 -> label config
-label1 = ctk.CTkLabel(frame1, text='', bg_color='#61677A')
-canvas1 = ctk.CTkCanvas(frame1, highlightthickness=0, background='#61677A')
+label1 = ctk.CTkLabel(frame1, text=lable_text, text_color='#fff', bg_color='#272829', font=('Croissant One', 30))
+canvas1 = ctk.CTkCanvas(frame1, highlightthickness=0, background='#272829')
 
 # frame1 -> label positioning
 label1.grid(row=0, pady=(0, 10), sticky='nsew')
@@ -182,6 +218,7 @@ root.protocol("WM_DELETE_WINDOW", close_win)
 
 ##########################################################################################################
 
+count = 0
 
 while running:
     img = cam.read()[1]
@@ -191,10 +228,15 @@ while running:
 
     curr_frame = face_recognition.face_locations(small_image)
 
+    # profile pic rendering
     if len(curr_frame) and Detection_mutex:
         Detection_mutex = False
         Th1 = threading.Thread(target=Face_detect, args=(small_image, curr_frame,))
         Th1.start()
+
+    if not len(curr_frame) and Pic_Mutex:
+        Pic_Mutex = False
+        Th3 = threading.Thread(target=Waiting_func, args=()).start()
 
     for face_loc in curr_frame:
         y1, x2, y2, x1 = face_loc
@@ -202,16 +244,16 @@ while running:
         bbox = x1, y1, x2 - x1, y2 - y1
         img = cvzone.cornerRect(img, bbox, rt=0)
 
-    # profile pic rendering
-    if profile_pic is not None:
-        resized_profile = profile_pic.resize((width1, height1))
-        profile_pic_tk = ImageTk.PhotoImage(resized_profile)
-        canvas1.create_image(0, 0, image=profile_pic_tk, anchor='nw')
+    resized_profile = profile_pic.resize((width1, height1))
+    profile_pic_tk = ImageTk.PhotoImage(resized_profile)
+    canvas1.create_image(0, 0, image=profile_pic_tk, anchor='nw')
 
     # live cam rendering
     img_org = Image.fromarray(img)
     resized_img = img_org.resize((width, height))
     img_tk = ImageTk.PhotoImage(resized_img)
     canvas2.create_image(0, 0, image=img_tk, anchor='nw')
+
+    label1.configure(text=lable_text)
 
     root.update()
